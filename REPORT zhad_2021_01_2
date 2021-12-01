@@ -1,0 +1,81 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_01_2.
+
+INCLUDE zhad_2021_selection.
+
+CLASS zhad_2021_01_2 DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    DATA: mt_data TYPE TABLE OF i.
+    METHODS parse_input.
+    METHODS main.
+
+
+
+ENDCLASS.
+
+CLASS zhad_2021_01_2 IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    mt_data = mt_input_string.
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: current_sum  TYPE i,
+          previous_sum TYPE i.
+
+    DATA(lines) = lines( mt_data ).
+
+    LOOP AT mt_data ASSIGNING FIELD-SYMBOL(<data>).
+
+      IF sy-tabix + 2 <= lines. "Check if we are oob
+
+        current_sum = <data> + mt_data[ sy-tabix + 1 ] + mt_data[ sy-tabix + 2 ].
+
+        IF previous_sum IS NOT INITIAL
+        AND current_sum > previous_sum.
+          mv_result = mv_result + 1.
+        ENDIF.
+
+        previous_sum = current_sum.
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day01.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_01_2( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
