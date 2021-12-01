@@ -1,0 +1,87 @@
+CLASS zhad_2021_base DEFINITION
+  PUBLIC
+
+  CREATE PUBLIC .
+
+  PUBLIC SECTION.
+
+    METHODS constructor.
+    METHODS read_input
+      IMPORTING file TYPE string
+      RAISING   /wsv/cx_bp_general.
+
+    METHODS print_result.
+
+
+  PROTECTED SECTION.
+    DATA: mt_input_string TYPE TABLE OF string,
+          mv_result       TYPE int8.
+
+  PRIVATE         SECTION.
+    DATA: mv_runtime_start TYPE i.
+
+
+ENDCLASS.
+
+
+
+CLASS zhad_2021_base IMPLEMENTATION.
+
+  METHOD constructor.
+
+    GET RUN TIME FIELD mv_runtime_start.
+
+  ENDMETHOD.
+
+
+  METHOD read_input.
+
+    CALL METHOD cl_gui_frontend_services=>gui_upload
+      EXPORTING
+        filename                = file
+        filetype                = 'DAT'
+        has_field_separator     = ''
+        replacement             = space
+*       dat_mode                = 'X'
+      CHANGING
+        data_tab                = mt_input_string
+      EXCEPTIONS
+        file_open_error         = 1
+        file_read_error         = 2
+        no_batch                = 3
+        gui_refuse_filetransfer = 4
+        invalid_type            = 5
+        no_authority            = 6
+        unknown_error           = 7
+        bad_data_format         = 8
+        header_not_allowed      = 9
+        separator_not_allowed   = 10
+        header_too_long         = 11
+        unknown_dp_error        = 12
+        access_denied           = 13
+        dp_out_of_memory        = 14
+        disk_full               = 15
+        dp_timeout              = 16
+        not_supported_by_gui    = 17
+        error_no_gui            = 18
+        OTHERS                  = 19.
+
+    IF sy-subrc <> 0.
+      /wsv/cl_bp_exception_helper=>raise_from_sy( ).
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD print_result.
+
+    ULINE.
+    WRITE: / mv_result.
+
+    GET RUN TIME FIELD DATA(runtime_end).
+
+    WRITE: / |Runtime: { ( runtime_end - mv_runtime_start ) / 1000 } ms|.
+
+  ENDMETHOD.
+
+
+ENDCLASS.
