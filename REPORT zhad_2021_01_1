@@ -1,0 +1,73 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_01_1.
+
+INCLUDE zhad_2021_selection.
+
+CLASS zhad_2021_01_1 DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    DATA: mt_data TYPE TABLE OF i.
+    METHODS parse_input.
+    METHODS main.
+
+
+
+ENDCLASS.
+
+CLASS zhad_2021_01_1 IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    mt_data = mt_input_string.
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: previous TYPE i.
+
+    LOOP AT mt_data ASSIGNING FIELD-SYMBOL(<data>).
+
+      IF previous is NOT INITIAL
+      and <data> > previous.
+        mv_result = mv_result + 1.
+      ENDIF.
+
+      previous =  <data>.
+
+    ENDLOOP.
+
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day01.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_01_1( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
