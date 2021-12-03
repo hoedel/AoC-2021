@@ -1,0 +1,118 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_03_01.
+
+INCLUDE zhad_2021_selection.
+
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    DATA: mt_data TYPE TABLE OF string.
+    METHODS parse_input.
+    METHODS main REDEFINITION.
+
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    mt_data = mt_input_string.
+
+
+
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: dec          TYPE i,
+          count_1_t    TYPE TABLE OF i,
+          count_1      TYPE i,
+          gamma_rate   TYPE string,
+          epsilon_rate TYPE string.
+
+
+
+    "prep count table: amnt lines needs to be positions
+    DO strlen( mt_data[ 1 ] ) TIMES.
+
+      INSERT count_1 INTO TABLE count_1_t.
+
+    ENDDO.
+
+
+    LOOP AT mt_data ASSIGNING FIELD-SYMBOL(<data>).
+
+      dec = /ui2/cl_number=>base_converter( number = <data> from = 2 to = 10 ).
+
+      DO strlen( <data> ) TIMES.
+
+        DATA(check_value_dec) = ipow( base = 2 exp = ( strlen( <data> ) - sy-index ) ).
+
+        IF   dec <> 0
+         AND dec >= check_value_dec . "One at this position?
+
+          count_1_t[ sy-index ] = count_1_t[ sy-index ] + 1.
+          dec = dec - check_value_dec.
+
+        ENDIF.
+
+      ENDDO.
+
+    ENDLOOP.
+
+
+    "Build gamma
+    LOOP AT count_1_t INTO count_1.
+
+      IF count_1 > ( lines( mt_data ) / 2 ).
+        gamma_rate = gamma_rate && '1'.
+      ELSE.
+        gamma_rate = gamma_rate && '0'.
+      ENDIF.
+
+    ENDLOOP.
+
+    epsilon_rate = gamma_rate.
+    TRANSLATE epsilon_rate USING '1001'.
+
+    mv_result = /ui2/cl_number=>base_converter( number = gamma_rate from = 2 to = 10 ) * /ui2/cl_number=>base_converter( number = epsilon_rate from = 2 to = 10 ).
+
+
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day03.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
