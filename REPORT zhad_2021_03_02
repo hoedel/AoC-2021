@@ -1,0 +1,118 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_03_02.
+
+INCLUDE zhad_2021_selection.
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    DATA: mt_data TYPE TABLE OF char12.
+    METHODS parse_input.
+    METHODS main REDEFINITION.
+
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    mt_data = mt_input_string.
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: count_1 TYPE i.
+
+    DATA(oxygen_t) = mt_data.
+    DO strlen( mt_data[ 1 ] ) TIMES.
+
+      DATA(offset) = sy-index - 1.
+      CLEAR: count_1.
+
+      LOOP AT oxygen_t ASSIGNING FIELD-SYMBOL(<oxygen>).
+
+        IF <oxygen>+offset(1) = '1'.
+          count_1 = count_1 + 1.
+        ENDIF.
+
+      ENDLOOP.
+
+      "reduce
+      IF count_1 >= ( lines( oxygen_t ) / 2 ).
+        DELETE oxygen_t WHERE table_line+offset(1) = '0'.
+      ELSE.
+        DELETE oxygen_t WHERE table_line+offset(1) = '1'.
+      ENDIF.
+
+      IF lines( oxygen_t ) = 1.
+        EXIT.
+      ENDIF.
+
+    ENDDO.
+
+    DATA(co2_t) = mt_data.
+    DO strlen( mt_data[ 1 ] ) TIMES.
+
+      offset = sy-index - 1.
+      CLEAR: count_1.
+
+      LOOP AT co2_t ASSIGNING FIELD-SYMBOL(<co2>).
+
+        IF <co2>+offset(1) = '1'.
+          count_1 = count_1 + 1.
+        ENDIF.
+
+      ENDLOOP.
+
+      "reduce
+      IF count_1 >= ( lines( co2_t ) / 2 ).
+        DELETE co2_t WHERE table_line+offset(1) = '1'.
+      ELSE.
+        DELETE co2_t WHERE table_line+offset(1) = '0'.
+      ENDIF.
+
+      IF lines( co2_t ) = 1.
+        EXIT.
+      ENDIF.
+
+    ENDDO.
+
+    mv_result = /ui2/cl_number=>base_converter( number = oxygen_t[ 1 ] from = 2 to = 10 ) * /ui2/cl_number=>base_converter( number = co2_t[ 1 ] from = 2 to = 10 ).
+
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day03.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
