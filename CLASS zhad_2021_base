@@ -1,9 +1,16 @@
 CLASS zhad_2021_base DEFINITION
   PUBLIC
-
   CREATE PUBLIC .
 
   PUBLIC SECTION.
+
+    TYPES: BEGIN OF ty_2d,
+             x     TYPE i,
+             y     TYPE i,
+             value TYPE string,
+           END OF ty_2d.
+
+    TYPES tt_2d TYPE TABLE OF ty_2d.
 
     METHODS constructor.
     METHODS read_input
@@ -11,9 +18,19 @@ CLASS zhad_2021_base DEFINITION
       RAISING   /wsv/cx_bp_general.
 
     METHODS parse_input_text
-      IMPORTING seperator1       TYPE string
-                seperator1_space TYPE abap_bool
-      CHANGING  data             TYPE REF TO data.
+      IMPORTING seperator1       TYPE string    OPTIONAL
+                seperator1_space TYPE abap_bool OPTIONAL
+                newline_at_sep   TYPE abap_bool OPTIONAL
+                input            TYPE string_t  OPTIONAL
+      CHANGING  data             TYPE REF TO data
+      RAISING   /wsv/cx_bp_general.
+
+
+    METHODS parse_input_2d_sep
+      IMPORTING seperator1       TYPE string    OPTIONAL
+                seperator1_space TYPE abap_bool OPTIONAL
+                input            TYPE string_t  OPTIONAL
+      EXPORTING VALUE(data)      TYPE tt_2d.
 
 
     METHODS main.
@@ -24,6 +41,7 @@ CLASS zhad_2021_base DEFINITION
   PROTECTED SECTION.
     DATA: mt_input_string TYPE TABLE OF string,
           mv_result       TYPE int8.
+
 
   PRIVATE         SECTION.
     DATA: mv_runtime_start TYPE i.
@@ -96,6 +114,12 @@ CLASS zhad_2021_base IMPLEMENTATION.
 
   METHOD parse_input_text.
 
+    DATA(input_local) = input.
+
+    IF input_local IS INITIAL.
+      input_local = mt_input_string.
+    ENDIF.
+
     " Table
     FIELD-SYMBOLS: <data_table> TYPE ANY TABLE.
     ASSIGN data->* TO <data_table>.
@@ -111,7 +135,7 @@ CLASS zhad_2021_base IMPLEMENTATION.
     ASSIGN line_ref->* TO <line>.
 
 
-    LOOP AT mt_input_string ASSIGNING FIELD-SYMBOL(<input>). "Line by Line
+    LOOP AT input_local ASSIGNING FIELD-SYMBOL(<input>). "Line by Line
 
       CLEAR: <line>.
 
@@ -128,20 +152,90 @@ CLASS zhad_2021_base IMPLEMENTATION.
 
       ENDIF.
 
+      "split into table lines or structure fields?
+      IF newline_at_sep = abap_false. "fields
 
-      LOOP AT lt_input_split1 ASSIGNING FIELD-SYMBOL(<input_split_1>). "field by field
+        LOOP AT lt_input_split1 ASSIGNING FIELD-SYMBOL(<input_split_1>). "field by field
 
-        ASSIGN COMPONENT sy-tabix OF STRUCTURE <line> TO FIELD-SYMBOL(<field>).
-        <field> = <input_split_1>.
+          ASSIGN COMPONENT sy-tabix OF STRUCTURE <line> TO FIELD-SYMBOL(<field>).
+          IF sy-subrc <> 0.
+            RAISE EXCEPTION TYPE /wsv/cx_bp_general MESSAGE e037(xml_42) WITH sy-tabix.
+          ENDIF.
 
-      ENDLOOP.
+          <field> = <input_split_1>.
+
+        ENDLOOP.
+
+        INSERT <line> INTO TABLE <data_table>.
+
+      ELSE. "lines
+
+        LOOP AT lt_input_split1 ASSIGNING <input_split_1>.
+
+          ASSIGN COMPONENT 1 OF STRUCTURE <line> TO <field>.
+          IF sy-subrc <> 0.
+            RAISE EXCEPTION TYPE /wsv/cx_bp_general MESSAGE e037(xml_42) WITH sy-tabix.
+          ENDIF.
+          <field> = <input_split_1>.
+          INSERT <line> INTO TABLE <data_table>.
+
+        ENDLOOP.
 
 
-      INSERT <line> INTO TABLE <data_table>.
+      ENDIF.
 
     ENDLOOP.
 
+  ENDMETHOD.
 
+  METHOD parse_input_2d_sep.
+
+    DATA(input_local) = input.
+
+    IF input_local IS INITIAL.
+      input_local = mt_input_string.
+    ENDIF.
+
+    DATA : line TYPE ty_2d.
+    DATA(index_y) = 0.
+
+    LOOP AT input_local ASSIGNING FIELD-SYMBOL(<input>).
+
+      IF <input> IS INITIAL.
+        EXIT.
+      ENDIF.
+
+      CONDENSE <input>.
+
+      DATA(index_x) = 0.
+
+      IF seperator1_space = abap_true.    "create new internal row at space/sep1
+
+        SPLIT <input> AT space INTO TABLE DATA(lt_input_split1) IN CHARACTER MODE.
+
+      ELSEIF seperator1 IS NOT INITIAL.
+        SPLIT <input> AT seperator1 INTO TABLE lt_input_split1 IN CHARACTER MODE.
+
+      ENDIF.
+
+      LOOP AT lt_input_split1 ASSIGNING FIELD-SYMBOL(<input_split_1>).
+
+        CLEAR: line.
+
+        line-x      = index_x.
+        line-y      = index_y.
+        line-value  = <input_split_1>.
+
+        INSERT line INTO TABLE data.
+
+        index_x = index_x + 1.
+
+
+      ENDLOOP.
+
+      index_y = index_y + 1.
+
+    ENDLOOP.
 
   ENDMETHOD.
 
