@@ -1,0 +1,304 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_04_01.
+
+INCLUDE zhad_2021_selection.
+
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    TYPES: BEGIN OF ty_bingo.
+        INCLUDE TYPE ty_2d.
+    TYPES:      done TYPE abap_bool.
+
+    TYPES:      END OF ty_bingo.
+
+    TYPES: BEGIN OF ty_data,
+             id   TYPE i,
+             data TYPE STANDARD TABLE OF ty_bingo WITH DEFAULT KEY,
+           END OF ty_data.
+
+    TYPES: BEGIN OF ty_draw,    "parser needs a structure to work
+             value TYPE i,
+           END OF ty_draw.
+
+
+    DATA: mt_games TYPE TABLE OF ty_data,
+          mt_draw  TYPE TABLE OF ty_draw.
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+    METHODS check IMPORTING game        TYPE ty_data
+                  RETURNING VALUE(done) TYPE abap_bool.
+
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    DATA: group TYPE TABLE OF string,
+          game  TYPE ty_data.
+
+    DATA(count_group) = 0.
+
+    LOOP AT mt_input_string ASSIGNING FIELD-SYMBOL(<input>).
+
+      IF <input> IS INITIAL."Empty line = end of group
+
+        IF count_group = 0. "first part are draws
+
+          DATA: ref_to_data        TYPE REF TO data.
+          FIELD-SYMBOLS: <data>    TYPE ANY TABLE.
+
+          CREATE DATA ref_to_data TYPE STANDARD TABLE OF ty_draw.
+
+          parse_input_text( EXPORTING seperator1       = CONV #( p_sep1 )
+                                      seperator1_space = p_sspace
+                                      newline_at_sep   = p_tnewl
+                                      input = group
+                              CHANGING data            = ref_to_data ).
+
+          ASSIGN ref_to_data->* TO <data>.
+          mt_draw = <data>.
+
+        ELSE.       "games
+
+          CLEAR: game.
+          game-id = count_group - 1.
+
+          parse_input_2d_sep( EXPORTING seperator1 = CONV #( p_2ds1 )
+                                        seperator1_space = p_2ds1s
+                                        input = group
+                              IMPORTING data = DATA(data_2d_raw) ).
+
+          MOVE-CORRESPONDING data_2d_raw TO game-data.
+          INSERT game INTO TABLE mt_games.
+
+
+
+        ENDIF.
+
+        CLEAR: group.
+        count_group = count_group + 1.
+
+      ELSE.
+
+        INSERT <input> INTO TABLE group.
+
+
+      ENDIF.
+
+
+    ENDLOOP.
+
+    "last group...oldschool processing
+    CLEAR: game.
+    game-id = count_group - 1.
+
+    parse_input_2d_sep( EXPORTING seperator1 = CONV #( p_2ds1 )
+                                  seperator1_space = p_2ds1s
+                                  input = group
+                        IMPORTING data = data_2d_raw ).
+
+    MOVE-CORRESPONDING data_2d_raw TO game-data.
+    INSERT game INTO TABLE mt_games.
+
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: value_unmarked TYPE i.
+
+    "Draw!
+    LOOP AT mt_draw ASSIGNING FIELD-SYMBOL(<draw>).
+
+      "Apply
+      LOOP AT mt_games ASSIGNING FIELD-SYMBOL(<game>).
+
+        LOOP AT <game>-data ASSIGNING FIELD-SYMBOL(<number>)
+            WHERE value = <draw>-value.
+
+          <number>-done = abap_true.
+
+        ENDLOOP.
+
+
+        "Check
+        DATA(done) = check( <game> ).
+
+        IF done = abap_true.
+
+          "Calculate unmarked
+          LOOP AT <game>-data ASSIGNING <number>
+            WHERE done = abap_false.
+
+            value_unmarked = value_unmarked + <number>-value.
+
+          ENDLOOP.
+
+          mv_result = value_unmarked * <draw>-value.
+
+        ENDIF.
+
+        IF done = abap_true.
+          EXIT.
+        ENDIF.
+
+      ENDLOOP.
+
+      IF done = abap_true.
+        EXIT.
+      ENDIF.
+
+
+    ENDLOOP.
+
+
+  ENDMETHOD.
+
+  METHOD check.
+
+
+    DATA(max) = sqrt( lines( game-data ) ).
+
+    "Vertical
+    DATA(y) = 0.
+    DO max TIMES.
+
+      DATA(count_done) = 0.
+
+      DATA(x) = 0.
+
+      DO max TIMES.
+
+        READ TABLE game-data WITH KEY x = x y = y ASSIGNING FIELD-SYMBOL(<field>).
+        IF <field>-done = abap_true.
+          count_done = count_done + 1.
+        ENDIF.
+        x = x + 1.
+
+      ENDDO.
+
+      IF count_done = max.
+        done = abap_true.
+        EXIT.
+      ENDIF.
+
+      y = y + 1.
+
+    ENDDO.
+
+    "Horizontal
+    x = 0.
+    DO max TIMES.
+
+      count_done = 0.
+
+      y = 0.
+
+      DO max TIMES.
+
+        READ TABLE game-data WITH KEY x = x y = y ASSIGNING <field>.
+        IF <field>-done = abap_true.
+          count_done = count_done + 1.
+        ENDIF.
+        y = y + 1.
+
+      ENDDO.
+
+      IF count_done = max.
+        done = abap_true.
+        EXIT.
+      ENDIF.
+
+      x = x + 1.
+
+    ENDDO.
+
+
+*    "Diagonal 1 UL -> BR
+*    x = 0.
+*    y = 0.
+*    count_done = 0.
+*    DO max TIMES.
+*
+*      READ TABLE game-data WITH KEY x = x y = y ASSIGNING <field>.
+*      IF <field>-done = abap_true.
+*        count_done = count_done + 1.
+*      ENDIF.
+*
+*      IF count_done = max.
+*        done = abap_true.
+*        EXIT.
+*      ENDIF.
+*
+*      x = x + 1.
+*      y = y + 1.
+*
+*    ENDDO.
+*
+*
+*    "Diagonal 2 UR -> BL
+*    x = max - 1 .
+*    y = 0.
+*    count_done = 0.
+*    DO max TIMES.
+*
+*      READ TABLE game-data WITH KEY x = x y = y ASSIGNING <field>.
+*      IF <field>-done = abap_true.
+*        count_done = count_done + 1.
+*      ENDIF.
+*
+*      IF count_done = max.
+*        done = abap_true.
+*        EXIT.
+*      ENDIF.
+*
+*      x = x - 1.
+*      y = y + 1.
+*
+*    ENDDO.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day04.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
