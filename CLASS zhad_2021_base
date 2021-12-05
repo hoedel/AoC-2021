@@ -22,6 +22,9 @@ CLASS zhad_2021_base DEFINITION
                 seperator1_space TYPE abap_bool OPTIONAL
                 newline_at_sep   TYPE abap_bool OPTIONAL
                 input            TYPE string_t  OPTIONAL
+                remove_space     TYPE abap_bool OPTIONAL
+                replace_source   TYPE text10    OPTIONAL
+                replace_target   TYPE text10    OPTIONAL
       CHANGING  data             TYPE REF TO data
       RAISING   /wsv/cx_bp_general.
 
@@ -32,18 +35,28 @@ CLASS zhad_2021_base DEFINITION
                 input            TYPE string_t  OPTIONAL
       EXPORTING VALUE(data)      TYPE tt_2d.
 
-
     METHODS main.
 
     METHODS print_result.
 
+    METHODS print_2d.
+
 
   PROTECTED SECTION.
     DATA: mt_input_string TYPE TABLE OF string,
-          mv_result       TYPE int8.
+          mv_result       TYPE int8,
+          mt_2d           TYPE SORTED TABLE OF ty_2d WITH UNIQUE KEY y x.
 
 
   PRIVATE         SECTION.
+
+    METHODS clean_input
+      IMPORTING input                TYPE  string_t
+                remove_space         TYPE abap_bool OPTIONAL
+                replace_source       TYPE text10 OPTIONAL
+                replace_target       TYPE text10 OPTIONAL
+      RETURNING VALUE(input_cleaned) TYPE string_t.
+
     DATA: mv_runtime_start TYPE i.
 
 
@@ -119,6 +132,11 @@ CLASS zhad_2021_base IMPLEMENTATION.
     IF input_local IS INITIAL.
       input_local = mt_input_string.
     ENDIF.
+
+    input_local = clean_input( input          = input_local
+                           remove_space   = remove_space
+                           replace_source = replace_source
+                           replace_target = replace_target ).
 
     " Table
     FIELD-SYMBOLS: <data_table> TYPE ANY TABLE.
@@ -236,6 +254,77 @@ CLASS zhad_2021_base IMPLEMENTATION.
       index_y = index_y + 1.
 
     ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD  clean_input.
+
+    input_cleaned = input.
+
+    " remove + replace characters
+    LOOP AT input_cleaned ASSIGNING FIELD-SYMBOL(<input>).
+
+      " replace
+      IF replace_source IS NOT INITIAL.
+        REPLACE ALL OCCURRENCES OF replace_source IN <input> WITH replace_target.
+      ENDIF.
+
+      IF remove_space = abap_true.
+        CONDENSE <input> NO-GAPS.
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
+  METHOD print_2d.
+
+    DATA: string TYPE string,
+          max    TYPE ty_2d.
+
+    ULINE.
+
+    LOOP AT mt_2d ASSIGNING FIELD-SYMBOL(<2d>). "This can be done cleaner
+
+      IF <2d>-x > max-x.
+        max-x = <2d>-x.
+      ENDIF.
+
+      IF <2d>-y > max-y.
+        max-y = <2d>-y.
+      ENDIF.
+
+    ENDLOOP.
+
+
+    DATA(y) = 0.
+
+    WHILE y <= max-y .
+
+      DATA(x) = 0.
+
+      WHILE x <= max-x.
+
+        READ TABLE mt_2d WITH KEY y = y x = x ASSIGNING FIELD-SYMBOL(<position>).
+        IF sy-subrc <> 0. "no Entry at this position -> print default char
+          string = string && '.'.
+        ELSE.
+          string = string && <position>-value.
+        ENDIF.
+
+        x = x + 1.
+
+      ENDWHILE.
+
+      CONDENSE string NO-GAPS.
+      WRITE: / string.
+      CLEAR: string.
+      y = y + 1.
+
+    ENDWHILE.
+
+    WRITE: / string.
 
   ENDMETHOD.
 
