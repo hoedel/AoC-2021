@@ -1,0 +1,158 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_05_01.
+
+INCLUDE zhad_2021_selection.
+
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+
+    TYPES: BEGIN OF ty_line,
+             start_x TYPE i,
+             start_y TYPE i,
+             end_x   TYPE i,
+             end_y   TYPE i,
+           END OF ty_line.
+
+    DATA: mt_lines TYPE TABLE OF ty_line.
+
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    DATA: ref_to_data        TYPE REF TO data.
+    FIELD-SYMBOLS: <data>    TYPE ANY TABLE.
+
+    CREATE DATA ref_to_data TYPE STANDARD TABLE OF ty_line.
+
+    parse_input_text( EXPORTING seperator1       = CONV #( p_sep1 )
+                                seperator1_space = p_sspace
+                                newline_at_sep   = p_tnewl
+                                remove_space     = p_remsp
+                                replace_source   = p_reps
+                                replace_target   = p_rept
+                        CHANGING data            = ref_to_data ).
+
+    ASSIGN ref_to_data->* TO <data>.
+    mt_lines = <data>.
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    "draw lines
+    LOOP AT mt_lines ASSIGNING FIELD-SYMBOL(<line>).
+
+      DATA: point TYPE ty_2d.
+
+      "Ignore diagonal
+      IF      <line>-start_x <> <line>-end_x
+        AND   <line>-start_y <> <line>-end_y.
+        CONTINUE.
+      ENDIF.
+
+      "determine delta
+      DATA(distance_x) = <line>-start_x - <line>-end_x.
+      DATA(distance_y) = <line>-start_y - <line>-end_y.
+
+      DATA(x) = <line>-start_x.
+      DATA(y) = <line>-start_y.
+
+      DATA(current_delta_x) = distance_x * -1.
+      DATA(current_delta_y) = distance_y * -1.
+      DO nmax( val1 = abs( distance_x ) val2 = abs( distance_y ) ) + 1 TIMES. "assuming distance_x = distance_y for diagonals
+
+        "Apply Deltas
+        x = <line>-start_x + current_delta_x.
+        y = <line>-start_y + current_delta_y.
+
+        "remember
+        READ TABLE mt_2d ASSIGNING FIELD-SYMBOL(<point>) WITH KEY x = x
+                                                                  y = y.
+        IF sy-subrc <> 0. "does not exist yet -> add
+          point-x = x.
+          point-y = y.
+          point-value = 1.
+          INSERT point INTO TABLE mt_2d.
+        ELSE.
+          <point>-value = <point>-value + 1.
+
+        ENDIF.
+
+
+        "Adjust deltas
+        IF current_delta_x > 0.
+          current_delta_x = current_delta_x - 1.
+        ELSEIF current_delta_x < 0.
+          current_delta_x = current_delta_x + 1.
+        ENDIF.
+
+        IF current_delta_y > 0.
+          current_delta_y = current_delta_y - 1.
+        ELSEIF current_delta_y < 0.
+          current_delta_y = current_delta_y + 1.
+        ENDIF.
+
+      ENDDO.
+
+*      print_2d( ).
+
+    ENDLOOP.
+
+    "determine danger zones
+    LOOP AT mt_2d TRANSPORTING NO FIELDS
+        WHERE value >= 2.
+
+      mv_result = mv_result + 1.
+
+    ENDLOOP.
+
+
+
+  ENDMETHOD.
+
+
+ENDCLASS.
+
+
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day05.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
