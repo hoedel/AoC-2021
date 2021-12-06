@@ -1,0 +1,167 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_06_02.
+
+INCLUDE zhad_2021_selection.
+PARAMETERS: p_times TYPE i DEFAULT 18.
+
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+
+    TYPES: BEGIN OF ty_data,
+             timer TYPE i,
+           END OF ty_data.
+
+    TYPES: BEGIN OF ty_population,
+             timer      TYPE i,
+             population TYPE int8,
+           END OF ty_population.
+
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+  PRIVATE SECTION.
+
+    DATA: mt_data       TYPE TABLE OF ty_data,
+          mt_population TYPE SORTED TABLE OF ty_population WITH UNIQUE KEY timer.
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    DATA: ref_to_data        TYPE REF TO data.
+    FIELD-SYMBOLS: <data>    TYPE ANY TABLE.
+
+    CREATE DATA ref_to_data TYPE STANDARD TABLE OF ty_data.
+
+    parse_input_text( EXPORTING seperator1       = CONV #( p_sep1 )
+                                seperator1_space = p_sspace
+                                newline_at_sep   = p_tnewl
+                                remove_space     = p_remsp
+                                replace_source   = p_reps
+                                replace_target   = p_rept
+                        CHANGING data            = ref_to_data ).
+
+    ASSIGN ref_to_data->* TO <data>.
+    mt_data = <data>.
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: temp TYPE SORTED TABLE OF ty_population WITH UNIQUE KEY timer,
+          init TYPE ty_population.
+
+    "build default
+    DO 9 TIMES.
+
+      init-timer = sy-index - 1.
+      init-population = 0.
+
+      INSERT init INTO TABLE mt_population.
+
+    ENDDO.
+
+    "Apply input population
+    LOOP AT mt_data ASSIGNING FIELD-SYMBOL(<data>).
+
+      READ TABLE mt_population ASSIGNING FIELD-SYMBOL(<timer>) WITH KEY timer = <data>-timer.
+      <timer>-population = <timer>-population + 1.
+
+
+    ENDLOOP.
+
+
+
+
+    DO p_times TIMES.
+
+      CLEAR: temp.
+
+      LOOP AT mt_population INTO DATA(timer).
+
+        IF timer-timer = 0. "become 8 + 6
+
+          timer-timer = 8.
+          INSERT timer INTO TABLE temp.
+
+          timer-timer = 6.
+          INSERT timer INTO TABLE temp.
+
+        ELSE.
+
+          timer-timer = timer-timer - 1.
+
+          IF timer-timer = 6.
+
+            "add to respawned
+            READ TABLE temp WITH KEY timer = 6 ASSIGNING FIELD-SYMBOL(<temp>).
+            IF sy-subrc = 0.
+              <temp>-population = <temp>-population + timer-population.
+            ELSE.
+              init-timer = 6.
+              init-population = timer-population.
+              INSERT init INTO TABLE temp.
+            ENDIF.
+
+          ELSE.
+            INSERT timer INTO TABLE temp.
+          ENDIF.
+
+        ENDIF.
+
+      ENDLOOP.
+
+      mt_population = temp.
+
+    ENDDO.
+
+
+    "calc result
+    LOOP AT mt_population ASSIGNING <timer>.
+      mv_result =  mv_result + <timer>-population.
+    ENDLOOP.
+
+
+  ENDMETHOD.
+
+
+ENDCLASS.
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day06.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
