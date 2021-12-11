@@ -10,7 +10,7 @@ CLASS zhad_2021_base DEFINITION
              value TYPE string,
            END OF ty_2d.
 
-    TYPES tt_2d TYPE TABLE OF ty_2d.
+    TYPES tt_2d TYPE SORTED TABLE OF ty_2d WITH UNIQUE KEY y x.
 
     METHODS constructor.
     METHODS read_input
@@ -33,6 +33,7 @@ CLASS zhad_2021_base DEFINITION
       IMPORTING seperator1       TYPE string    OPTIONAL
                 seperator1_space TYPE abap_bool OPTIONAL
                 input            TYPE string_t  OPTIONAL
+                by_position      TYPE abap_bool OPTIONAL
       EXPORTING VALUE(data)      TYPE tt_2d.
 
     METHODS main.
@@ -227,12 +228,24 @@ CLASS zhad_2021_base IMPLEMENTATION.
 
       DATA(index_x) = 0.
 
-      IF seperator1_space = abap_true.    "create new internal row at space/sep1
+      IF seperator1_space = abap_true.
 
         SPLIT <input> AT space INTO TABLE DATA(lt_input_split1) IN CHARACTER MODE.
 
       ELSEIF seperator1 IS NOT INITIAL.
         SPLIT <input> AT seperator1 INTO TABLE lt_input_split1 IN CHARACTER MODE.
+
+      ELSEIF by_position = abap_true.
+
+        clear: lt_input_split1.
+        DO strlen( <input> ) TIMES.
+
+          DATA(offset) = sy-index - 1.
+          INSERT <input>+offset(1) INTO TABLE lt_input_split1.
+
+        ENDDO.
+
+
 
       ENDIF.
 
