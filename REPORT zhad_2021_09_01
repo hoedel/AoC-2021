@@ -1,0 +1,100 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_09_01.
+
+INCLUDE zhad_2021_selection.
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+  PRIVATE SECTION.
+
+    METHODS get_value IMPORTING x            TYPE i
+                                y            TYPE i
+                      RETURNING VALUE(value) TYPE i.
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    parse_input_2d_sep( EXPORTING by_position = p_2dpos
+                        IMPORTING data = mt_2d ).
+
+  ENDMETHOD.
+
+  METHOD main.
+
+
+    LOOP AT mt_2d ASSIGNING FIELD-SYMBOL(<2d>).
+
+      IF      <2d>-value < get_value( x = ( <2d>-x )  y = ( <2d>-y - 1 ) )
+       AND    <2d>-value < get_value( x = ( <2d>-x )  y = ( <2d>-y + 1 ) )
+       AND    <2d>-value < get_value( x = ( <2d>-x + 1 )  y = ( <2d>-y ) )
+       AND    <2d>-value < get_value( x = ( <2d>-x - 1 )  y = ( <2d>-y ) ).
+
+        "We be low point
+        mv_result = mv_result + 1 + <2d>-value.
+
+      ENDIF.
+
+    ENDLOOP.
+
+
+  ENDMETHOD.
+
+  METHOD get_value.
+
+  try.
+
+    value = mt_2d[ x = x y = y ]-value.
+
+  CATCH CX_SY_ITAB_LINE_NOT_FOUND INTO data(exception). "oob
+
+    "Assume value = max+1 for the logic
+    value = 10.
+
+  ENDTRY.
+
+  ENDMETHOD.
+
+
+
+ENDCLASS.
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day09.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
