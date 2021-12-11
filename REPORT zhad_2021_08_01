@@ -1,0 +1,498 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_08_01.
+
+INCLUDE zhad_2021_selection.
+
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+
+    TYPES: BEGIN OF ty_data,
+             value        TYPE string,
+             length       TYPE i,
+             letters      TYPE SORTED TABLE OF char1 WITH UNIQUE KEY table_line,
+             number       TYPE char1,
+             value_sorted TYPE string,
+           END OF ty_data.
+
+    TYPES tt_data TYPE STANDARD TABLE OF ty_data.
+
+
+
+    TYPES: BEGIN OF ty_entry,
+             signal_patterns TYPE STANDARD TABLE OF ty_data WITH NON-UNIQUE KEY value,
+             output_values   TYPE STANDARD TABLE OF ty_data WITH NON-UNIQUE KEY value,
+           END OF ty_entry.
+
+
+    TYPES: BEGIN OF ty_position,
+             id              TYPE i,
+             possible_values TYPE SORTED TABLE OF char1 WITH UNIQUE KEY table_line,
+             solved          TYPE abap_bool,
+           END OF ty_position.
+
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+  PRIVATE SECTION.
+
+    METHODS sort_values CHANGING patterns TYPE tt_data .
+
+    DATA mt_entries TYPE TABLE OF ty_entry.
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    DATA: ref_to_data TYPE REF TO data,
+          data_split  TYPE TABLE OF string,
+          seperator2  TYPE string,
+          entry       TYPE ty_entry.
+
+    FIELD-SYMBOLS: <data>    TYPE ANY TABLE.
+
+
+    seperator2 = p_sep2.
+
+    LOOP AT mt_input_string ASSIGNING FIELD-SYMBOL(<input>).
+
+      CLEAR: data_split, ref_to_data.
+      CREATE DATA ref_to_data TYPE STANDARD TABLE OF ty_data.
+
+      SPLIT <input> AT seperator2 INTO TABLE DATA(input_split) IN CHARACTER MODE.
+      LOOP AT input_split ASSIGNING FIELD-SYMBOL(<input_split>).
+        CONDENSE <input_split>.
+      ENDLOOP.
+
+      "Do twice for before/after.
+
+      INSERT input_split[ 1 ] INTO TABLE data_split.
+
+      parse_input_text( EXPORTING seperator1       = CONV #( p_sep1 )
+                                  seperator1_space = p_sspace
+                                  newline_at_sep   = p_tnewl
+                                  input = data_split
+                          CHANGING data            = ref_to_data ).
+
+
+
+      ASSIGN ref_to_data->* TO <data>.
+      entry-signal_patterns = <data>.
+
+      CLEAR: data_split, ref_to_data, <data>.
+      CREATE DATA ref_to_data TYPE STANDARD TABLE OF ty_data.
+      INSERT input_split[ 2 ] INTO TABLE data_split.
+
+      parse_input_text( EXPORTING seperator1       = CONV #( p_sep1 )
+                                  seperator1_space = p_sspace
+                                  newline_at_sep   = p_tnewl
+                                  input = data_split
+                          CHANGING data            = ref_to_data ).
+
+      ASSIGN ref_to_data->* TO <data>.
+      entry-output_values = <data>.
+
+
+      INSERT entry INTO TABLE mt_entries.
+
+    ENDLOOP.
+  ENDMETHOD.
+
+
+
+  METHOD main.
+
+    DATA: all_letters          TYPE TABLE OF char1,
+          positions            TYPE TABLE OF ty_position,
+          position             TYPE ty_position,
+          letter               TYPE char1,
+          found                TYPE abap_bool,
+          matches              TYPE i,
+          letters_found        TYPE SORTED TABLE OF char1 WITH NON-UNIQUE KEY table_line,
+          letters_not_matching TYPE SORTED TABLE OF char1 WITH NON-UNIQUE KEY table_line.
+
+    all_letters = VALUE #( ( 'a' )
+                                       ( 'b' )
+                                       ( 'c' )
+                                       ( 'd' )
+                                       ( 'e' )
+                                       ( 'f' )
+                                       ( 'g' ) ).
+
+
+    LOOP AT mt_entries ASSIGNING FIELD-SYMBOL(<entry>).
+
+
+      "Build positions tab
+      CLEAR: positions.
+
+      DO 7 TIMES.
+
+        position-id = sy-index.
+        INSERT position INTO TABLE positions.
+
+      ENDDO.
+
+
+      "Preprocess
+
+      sort_values( CHANGING patterns = <entry>-signal_patterns ).
+      sort_values( CHANGING patterns = <entry>-output_values ).
+
+      "Presort by length
+      SORT <entry>-signal_patterns BY length ASCENDING.
+
+
+
+      "handle the ones we know aka 1,7,4
+
+      " = 1
+      READ TABLE <entry>-signal_patterns ASSIGNING FIELD-SYMBOL(<pattern>) WITH KEY length = 2.
+      <pattern>-number = 1.
+
+      LOOP AT <pattern>-letters ASSIGNING FIELD-SYMBOL(<letter>).
+
+        "Positions index 3 and 6 get maybes
+        ASSIGN positions[ 3 ] TO FIELD-SYMBOL(<position>).
+        INSERT <letter> INTO TABLE <position>-possible_values.
+
+        ASSIGN positions[ 6 ] TO <position>.
+        INSERT <letter> INTO TABLE <position>-possible_values.
+
+      ENDLOOP.
+
+      "----------
+      " = 7
+      READ TABLE <entry>-signal_patterns ASSIGNING <pattern> WITH KEY length = 3.
+      <pattern>-number = 7.
+      LOOP AT <pattern>-letters ASSIGNING <letter>.
+
+        CLEAR: found.
+
+        "Positions index 1 gets a sure
+        LOOP AT positions ASSIGNING <position>
+        WHERE id =  3 OR id = 6 .
+
+          READ TABLE <position>-possible_values WITH KEY table_line = <letter> TRANSPORTING NO FIELDS.
+          IF sy-subrc = 0.
+            found = abap_true.
+          ENDIF.
+
+        ENDLOOP.
+
+        IF found = abap_false.
+
+          ASSIGN positions[ 1 ] TO <position>.
+          INSERT <letter> INTO TABLE <position>-possible_values.
+          <position>-solved = abap_true.
+
+        ENDIF.
+
+      ENDLOOP.
+
+      "----------
+      " = 4
+
+      READ TABLE <entry>-signal_patterns ASSIGNING <pattern> WITH KEY length = 4.
+      <pattern>-number = 4.
+      LOOP AT <pattern>-letters ASSIGNING <letter>.
+
+        CLEAR: found.
+
+        "Positions 2 and 4 get a maybe
+
+        "we know 3 and 6, so the other pair is 2 and 4
+        LOOP AT positions ASSIGNING <position>
+          WHERE id =  3 OR id = 6 .
+
+          READ TABLE <position>-possible_values WITH KEY table_line = <letter> TRANSPORTING NO FIELDS.
+          IF sy-subrc = 0.
+            found = abap_true.
+          ENDIF.
+
+        ENDLOOP.
+
+        IF found = abap_false.
+
+          ASSIGN positions[ 2 ] TO <position>.
+          INSERT <letter> INTO TABLE <position>-possible_values.
+
+          ASSIGN positions[ 4 ] TO <position>.
+          INSERT <letter> INTO TABLE <position>-possible_values.
+
+        ENDIF.
+
+      ENDLOOP.
+
+      DATA(matches_length_5) = 0.
+      WHILE matches_length_5 < 2.
+
+        " 2, 3, 5
+        LOOP AT <entry>-signal_patterns ASSIGNING <pattern>
+          WHERE length = 5.
+
+          CLEAR: matches, letters_not_matching, letters_found.
+
+          LOOP AT <pattern>-letters ASSIGNING <letter>. "Every letter
+
+            CLEAR: found.
+
+            "collect matches
+            LOOP AT positions ASSIGNING <position>.
+
+              READ TABLE <position>-possible_values WITH KEY table_line = <letter> ASSIGNING FIELD-SYMBOL(<possible_value>).
+
+              IF sy-subrc = 0.
+                matches = matches + 1.
+                INSERT <letter> INTO TABLE letters_found.
+              ENDIF.
+
+            ENDLOOP.
+          ENDLOOP.
+
+          DELETE ADJACENT DUPLICATES FROM letters_found.
+
+          "prep also the other way around
+          letters_not_matching = <pattern>-letters.
+          LOOP AT letters_found ASSIGNING FIELD-SYMBOL(<letter_found>).
+            DELETE letters_not_matching WHERE table_line = <letter_found>.
+          ENDLOOP.
+
+          "We look for a 3
+          ASSIGN positions[ 3 ] TO FIELD-SYMBOL(<position_3>).
+          DATA(matches_3) = 0.
+          LOOP AT <position_3>-possible_values ASSIGNING FIELD-SYMBOL(<value_3>).
+            READ TABLE letters_found WITH KEY table_line = <value_3> TRANSPORTING NO FIELDS.
+            IF  sy-subrc = 0.
+              matches_3 = matches_3 + 1.
+            ENDIF.
+          ENDLOOP.
+
+          "We also look at the matches at 2
+          ASSIGN positions[ 2 ] TO FIELD-SYMBOL(<position_2>).
+          DATA(matches_2) = 0.
+          LOOP AT <position_2>-possible_values ASSIGNING FIELD-SYMBOL(<value_2>).
+            READ TABLE letters_found WITH KEY table_line = <value_2> TRANSPORTING NO FIELDS.
+            IF  sy-subrc = 0.
+              matches_2 = matches_2 + 1.
+            ENDIF.
+          ENDLOOP.
+
+
+          IF lines( letters_found ) = 4  "This is a 3
+           AND matches_length_5 = 0
+           AND matches_3 = 2.
+
+            "unknown letter must be bottom
+            positions[ 7 ]-possible_values = VALUE #( ( letters_not_matching[ 1 ] ) ).
+            positions[ 7 ]-solved = abap_true.
+
+            "Upper left is not used, Middle is used.
+            "Finalize upper left, cannot contain any found letter
+            ASSIGN positions[ 2 ] TO <position>.
+            LOOP AT letters_found ASSIGNING <letter_found>.
+              DELETE <position>-possible_values WHERE table_line = <letter_found>.
+            ENDLOOP.
+
+            <position>-solved = abap_true.
+
+            ASSIGN positions[ 4 ] TO FIELD-SYMBOL(<position_4>).
+            DELETE <position_4>-possible_values WHERE table_line = <position>-possible_values[ 1 ].
+            <position_4>-solved = abap_true.
+            "Finalize Middle, must be the other value
+
+            " Solve 5 must be the only value we did not use yet
+
+            "Summarize letters in positions
+            CLEAR: letters_found, letters_not_matching.
+            LOOP AT positions ASSIGNING <position>.
+              INSERT LINES OF <position>-possible_values INTO TABLE letters_found.
+            ENDLOOP.
+            DELETE ADJACENT DUPLICATES FROM letters_found.
+
+            letters_not_matching = all_letters.
+            LOOP AT letters_found ASSIGNING <letter_found>.
+              DELETE letters_not_matching WHERE table_line = <letter_found>.
+            ENDLOOP.
+
+            ASSIGN positions[ 5 ] TO FIELD-SYMBOL(<position_5>).
+            INSERT letters_not_matching[ 1 ] INTO TABLE <position_5>-possible_values.
+            <position_5>-solved = abap_true.
+
+            matches_length_5 = matches_length_5 + 1.
+
+            <pattern>-number = 3.
+
+          ELSEIF matches_length_5 = 1  "Must be 5
+               AND matches_2 = 0.
+
+            "whatever we found must be at 6 and cannot be at 3
+            ASSIGN positions[ 6 ] TO FIELD-SYMBOL(<position_6>).
+            LOOP AT letters_found ASSIGNING <letter_found>.
+              DELETE <position_6>-possible_values WHERE table_line = <letter_found>.
+            ENDLOOP.
+
+            <position_6>-solved = abap_true.
+
+            ASSIGN positions[ 3 ] TO <position_3>.
+            DELETE <position_3>-possible_values WHERE table_line = <position_6>-possible_values[ 1 ].
+
+            <position_3>-solved = abap_true.
+
+            <pattern>-number = 2.
+
+            matches_length_5 = matches_length_5 + 1.
+
+
+          ENDIF.
+
+        ENDLOOP.
+
+      ENDWHILE.
+
+
+      "Complete position to numbers table
+
+      LOOP AT <entry>-signal_patterns ASSIGNING <pattern>
+         WHERE number IS INITIAL.
+
+        CASE strlen( <pattern>-value ).
+
+          WHEN 5. "lucky, we already have the others 5s
+            <pattern>-number = 5.
+
+          WHEN 6. "0, 6, 9 depending on which position is not filled
+
+
+
+            LOOP AT all_letters ASSIGNING FIELD-SYMBOL(<all_letters>).
+
+              CLEAR found.
+
+              LOOP AT <pattern>-letters ASSIGNING <letter>
+                WHERE table_line = <all_letters>.
+
+                found = abap_true.
+                EXIT.
+
+              ENDLOOP.
+
+              IF found = abap_false.
+                DATA(missing_letter) = <all_letters>.
+              ENDIF.
+
+            ENDLOOP.
+
+            LOOP AT positions ASSIGNING <position>.
+
+              IF <position>-possible_values[ 1 ] = missing_letter.
+
+                DATA(missing_position) = <position>.
+
+              ENDIF.
+
+            ENDLOOP.
+
+            CASE missing_position-id.
+
+              WHEN 4.
+                <pattern>-number = 0.
+              WHEN 3.
+                <pattern>-number = 6.
+              WHEN 5.
+                <pattern>-number = 9.
+
+            ENDCASE.
+
+
+          WHEN 7. "must be 8
+            <pattern>-number = 8.
+
+        ENDCASE.
+
+      ENDLOOP.
+
+      DATA: numeric_value_entry TYPE string.
+
+      CLEAR numeric_value_entry.
+
+      LOOP AT <entry>-output_values ASSIGNING FIELD-SYMBOL(<output>).
+
+        numeric_value_entry = numeric_value_entry && <entry>-signal_patterns[ value_sorted = <output>-value_sorted ]-number.
+
+      ENDLOOP.
+
+      Write: / numeric_value_entry.
+
+      mv_result = mv_result + numeric_value_entry.
+
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD sort_values.
+
+    LOOP AT patterns ASSIGNING FIELD-SYMBOL(<pattern>).
+      <pattern>-length = strlen( <pattern>-value ).
+      DATA(string_offset) = 0.
+
+      DO <pattern>-length TIMES. "Every letter
+
+        DATA(letter) = <pattern>-value+string_offset(1).
+        INSERT CONV #( letter ) INTO TABLE <pattern>-letters.
+
+        string_offset = string_offset + 1.
+
+      ENDDO.
+
+      "and build sorted string
+      LOOP AT <pattern>-letters ASSIGNING FIELD-SYMBOL(<letter>).
+        <pattern>-value_sorted = <pattern>-value_sorted && <letter>.
+      ENDLOOP.
+
+    ENDLOOP.
+
+  ENDMETHOD.
+
+
+
+ENDCLASS.
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day08.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
