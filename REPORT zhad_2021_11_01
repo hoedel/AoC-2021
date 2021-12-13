@@ -1,0 +1,151 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_11_01.
+
+INCLUDE zhad_2021_selection.
+
+PARAMETERS: p_steps TYPE i DEFAULT 100.
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+  PRIVATE SECTION.
+
+    METHODS increment_and_check IMPORTING position TYPE ty_2d.
+
+    DATA: mt_delta         TYPE tt_2d,
+          mt_blinked_nodes TYPE tt_2d.
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    parse_input_2d_sep( EXPORTING by_position = p_2dpos
+                        IMPORTING data = mt_2d ).
+
+  ENDMETHOD.
+
+  METHOD main.
+
+
+    " build delta table
+    mt_delta = VALUE #(
+    ( x = -1 y = - 1 )
+    ( x = 0  y = - 1 )
+    ( x = 1  y = - 1 )
+
+    ( x = -1 y = 0 )
+    "( x = 0 y = 0 )
+    ( x = 1 y = 0 )
+
+    ( x = -1 y =  1 )
+    ( x = 0  y =  1 )
+    ( x = 1  y =  1 )
+    ).
+
+    DO p_steps TIMES. "Steps
+
+      CLEAR: mt_blinked_nodes.
+
+
+      "Increment each element once + check if it blinked
+      LOOP AT mt_2d ASSIGNING FIELD-SYMBOL(<2d>).
+
+        increment_and_check( <2d> ).
+
+
+      ENDLOOP.
+
+      IF lines( mt_blinked_nodes ) = lines( mt_2d ).
+
+        WRITE: |Part2: { sy-index } |.
+        exit.
+
+      ENDIF.
+
+
+    ENDDO.
+
+    "loop at
+
+  ENDMETHOD.
+
+  METHOD increment_and_check.
+
+    READ TABLE mt_2d WITH KEY y = position-y x = position-x ASSIGNING FIELD-SYMBOL(<position>).
+
+
+    "Check if this node has already blinked
+    READ TABLE mt_blinked_nodes WITH KEY y = <position>-y x = <position>-x TRANSPORTING NO FIELDS.
+    IF sy-subrc <> 0. "not yet blinked
+
+      <position>-value = <position>-value + 1.
+
+      IF <position>-value > 9.
+
+        mv_result = mv_result + 1.
+
+        <position>-value = 0.
+        INSERT <position> INTO TABLE mt_blinked_nodes.
+
+        LOOP AT mt_delta ASSIGNING FIELD-SYMBOL(<delta>).
+
+          TRY.
+              DATA(neighbour) = mt_2d[ x = ( <position>-x + <delta>-x ) y = ( <position>-y + <delta>-y ) ].
+
+              increment_and_check( neighbour ).
+
+            CATCH cx_sy_itab_line_not_found INTO DATA(exception). "oob
+
+              "no problem
+
+          ENDTRY.
+
+
+        ENDLOOP.
+
+      ENDIF.
+
+    ENDIF.
+
+  ENDMETHOD.
+
+
+ENDCLASS.
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day11.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
