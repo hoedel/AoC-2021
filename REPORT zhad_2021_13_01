@@ -1,0 +1,171 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_13_01 LINE-SIZE 1023.
+
+INCLUDE zhad_2021_selection.
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+  PRIVATE SECTION.
+
+    TYPES: BEGIN OF ty_fold,
+             axis  TYPE char1,
+             index TYPE i,
+           END OF ty_fold.
+
+
+
+    DATA: mt_folds TYPE TABLE OF ty_fold.
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    DATA: group TYPE TABLE OF string.
+
+    LOOP AT mt_input_string ASSIGNING FIELD-SYMBOL(<input>).
+
+      IF <input> IS INITIAL."Empty line = end of first part positions
+
+        DATA: ref_to_data        TYPE REF TO data.
+        FIELD-SYMBOLS: <data>    TYPE ANY TABLE.
+
+        CREATE DATA ref_to_data TYPE tt_2d.
+
+        parse_input_text( EXPORTING seperator1       = CONV #( p_sep1 )
+                                    seperator1_space = p_sspace
+                                    newline_at_sep   = p_tnewl
+                                    input = group
+                            CHANGING data            = ref_to_data ).
+
+        ASSIGN ref_to_data->* TO <data>.
+        mt_2d = <data>.
+
+        CLEAR: group.
+
+      ELSE.
+
+        INSERT <input> INTO TABLE group.
+
+
+      ENDIF.
+
+
+    ENDLOOP.
+
+    "last group = folds
+
+    p_sep1 = '='.  "Ugly
+    CLEAR: ref_to_data, <data>.
+    CREATE DATA ref_to_data TYPE STANDARD TABLE OF ty_fold.
+
+    parse_input_text( EXPORTING seperator1       = CONV #( p_sep1 )
+                                seperator1_space = p_sspace
+                                newline_at_sep   = p_tnewl
+                                replace_source   = p_reps
+                                remove_space     = p_remsp
+                                input = group
+                        CHANGING data            = ref_to_data ).
+
+    ASSIGN ref_to_data->* TO <data>.
+    mt_folds = <data>.
+
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: temp_positions TYPE TABLE OF ty_2d.
+
+    "give positions a value for output
+    LOOP AT mt_2d ASSIGNING FIELD-SYMBOL(<2d>).
+      <2d>-value = '#'.
+    ENDLOOP.
+
+    LOOP AT mt_folds ASSIGNING FIELD-SYMBOL(<fold>).
+
+      temp_positions = mt_2d.
+
+      CASE <fold>-axis.
+
+        WHEN 'y'. "fold up
+
+          "Remove all points below/at the line OR above the line
+          DELETE mt_2d WHERE y >= <fold>-index.
+          DELETE temp_positions WHERE y <= <fold>-index.
+
+          "transpose
+          LOOP AT temp_positions ASSIGNING FIELD-SYMBOL(<position>).
+            <position>-y = ( <fold>-index * 2 ) - <position>-y.
+            INSERT <position> INTO TABLE mt_2d.
+          ENDLOOP.
+
+        WHEN 'x'. "fold left
+
+          "Remove all points below/at the line OR above the line
+          DELETE mt_2d WHERE x >= <fold>-index.
+          DELETE temp_positions WHERE x <= <fold>-index.
+
+          "transpose
+          LOOP AT temp_positions ASSIGNING <position>.
+            <position>-x = ( <fold>-index * 2 ) - <position>-x.
+            INSERT <position> INTO TABLE mt_2d.
+          ENDLOOP.
+
+      ENDCASE.
+
+      AT FIRST. "Solution for part 1
+        mv_result = lines( mt_2d ).
+      ENDAT.
+
+    ENDLOOP.
+
+    print_2d( ).
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day13.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+    CATCH cx_root INTO DATA(root_exception).
+
+      WRITE: |Exception: { root_exception->get_longtext( ) } |.
+      WRITE: / root_exception->get_text( ).
+
+  ENDTRY.
