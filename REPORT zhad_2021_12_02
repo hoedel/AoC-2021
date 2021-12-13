@@ -1,0 +1,191 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_12_02.
+
+INCLUDE zhad_2021_selection.
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+  PRIVATE SECTION.
+
+    TYPES: BEGIN OF ty_data,
+             from TYPE string,
+             to   TYPE string,
+           END OF ty_data.
+
+    TYPES: BEGIN OF ty_path,
+             steps             TYPE STANDARD TABLE OF string WITH NON-UNIQUE KEY table_line,
+             steps_string      TYPE string,
+             second_small_used TYPE abap_bool,
+           END OF ty_path.
+
+    METHODS find_path IMPORTING current_path TYPE ty_path.
+
+    DATA: mt_connections TYPE TABLE OF ty_data,
+          mt_paths       TYPE TABLE OF ty_path.
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    DATA: ref_to_data        TYPE REF TO data.
+    FIELD-SYMBOLS: <data>    TYPE ANY TABLE.
+
+    CREATE DATA ref_to_data TYPE STANDARD TABLE OF ty_data.
+
+    parse_input_text( EXPORTING seperator1       = CONV #( p_sep1 )
+                                seperator1_space = p_sspace
+                                newline_at_sep   = p_tnewl
+                                remove_space     = p_remsp
+                                replace_source   = p_reps
+                                replace_target   = p_rept
+                        CHANGING data            = ref_to_data ).
+
+    ASSIGN ref_to_data->* TO <data>.
+    mt_connections = <data>.
+
+
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: current_path TYPE ty_path.
+
+    INSERT CONV #( 'start' ) INTO TABLE current_path-steps.
+    find_path( current_path ).
+
+
+
+    "for debug
+    LOOP AT mt_paths ASSIGNING FIELD-SYMBOL(<path>).
+
+      LOOP AT <path>-steps ASSIGNING FIELD-SYMBOL(<step>).
+
+        IF <path>-steps_string IS NOT INITIAL.
+
+          <path>-steps_string = <path>-steps_string && ','.
+
+        ENDIF.
+
+        <path>-steps_string = <path>-steps_string && <step>.
+
+      ENDLOOP.
+
+    ENDLOOP.
+
+    SORT mt_paths BY steps_string.
+
+    mv_result = lines( mt_paths ).
+
+  ENDMETHOD.
+
+  METHOD find_path.
+
+    DATA: target_locations TYPE TABLE OF string.
+
+    DATA(local_path) = current_path.
+
+    "find all connections from the current position AND to the current position.
+    LOOP AT mt_connections ASSIGNING FIELD-SYMBOL(<connection>)
+        WHERE from = local_path-steps[ lines( local_path-steps ) ].
+
+      INSERT <connection>-to INTO TABLE target_locations.
+
+    ENDLOOP.
+
+    LOOP AT mt_connections ASSIGNING <connection>
+        WHERE to = local_path-steps[ lines( local_path-steps ) ].
+
+      INSERT <connection>-from INTO TABLE target_locations.
+
+    ENDLOOP.
+
+    "never go back to start
+    DELETE target_locations WHERE table_line = 'start'.
+
+
+    LOOP AT target_locations ASSIGNING FIELD-SYMBOL(<target_location>).
+
+      DATA(continue) = abap_false.
+      local_path = current_path.  "base path
+
+      IF <target_location> = 'end'. "We done here?
+
+        INSERT <target_location> INTO TABLE local_path-steps.
+        INSERT local_path INTO TABLE mt_paths.
+
+      ELSEIF <target_location> CO 'abcdefghijklmnopqrstuvwxyz'.  "if it's a lower character we must check if we were there already
+
+        READ TABLE local_path-steps WITH KEY table_line = <target_location> TRANSPORTING NO FIELDS.
+        IF sy-subrc = 0. "found
+
+          IF local_path-second_small_used = abap_false.
+
+            local_path-second_small_used = abap_true.
+            continue = abap_true.
+
+          ENDIF.
+        else.
+          continue = abap_true.
+        ENDIF.
+
+      ELSE.
+
+        continue = abap_true.
+
+      ENDIF.
+
+      IF continue = abap_true.
+
+        INSERT <target_location> INTO TABLE local_path-steps.
+        find_path( local_path ).
+
+      ENDIF.
+
+
+    ENDLOOP.
+
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day12.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+  ENDTRY.
