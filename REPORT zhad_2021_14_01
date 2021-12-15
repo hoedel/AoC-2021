@@ -1,0 +1,227 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_14_01 LINE-SIZE 1023.
+
+INCLUDE zhad_2021_selection.
+
+PARAMETERS: p_steps TYPE i.
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+  PRIVATE SECTION.
+
+    TYPES: BEGIN OF ty_data,
+             value TYPE char1,
+           END OF ty_data.
+
+    TYPES: BEGIN OF ty_rule,
+             pair   TYPE char2,
+             insert TYPE char1,
+           END OF ty_rule.
+
+
+    TYPES: BEGIN OF ty_count,
+             element TYPE char1,
+             count   TYPE i,
+           END OF ty_count.
+
+    DATA: mt_polymer TYPE TABLE OF ty_data,
+          mt_rules   TYPE HASHED TABLE OF ty_rule WITH UNIQUE KEY pair,
+          mt_count   TYPE TABLE OF ty_count.
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    DATA: group TYPE TABLE OF string.
+
+    LOOP AT mt_input_string ASSIGNING FIELD-SYMBOL(<input>).
+
+      IF <input> IS INITIAL."Empty line = end of first part polymer
+
+        DATA: ref_to_data        TYPE REF TO data.
+        FIELD-SYMBOLS: <data>    TYPE ANY TABLE.
+
+        CREATE DATA ref_to_data TYPE TABLE OF ty_data.
+
+        parse_input_text( EXPORTING newline_at_sep   = abap_true
+                                    input            = group
+                                    by_position      = abap_true
+                            CHANGING data            = ref_to_data ).
+
+        ASSIGN ref_to_data->* TO <data>.
+        mt_polymer = <data>.
+
+        CLEAR: group.
+
+      ELSE.
+
+        INSERT <input> INTO TABLE group.
+
+
+      ENDIF.
+
+
+    ENDLOOP.
+
+    "last group = rules
+
+    CLEAR: ref_to_data, <data>.
+    CREATE DATA ref_to_data TYPE STANDARD TABLE OF ty_rule.
+
+    parse_input_text( EXPORTING seperator1       = CONV #( p_sep1 )
+                                seperator1_space = p_sspace
+                                newline_at_sep   = p_tnewl
+                                replace_source   = p_reps
+                                remove_space     = p_remsp
+                                input = group
+                        CHANGING data            = ref_to_data ).
+
+    ASSIGN ref_to_data->* TO <data>.
+    mt_rules = <data>.
+
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: polymer_temp TYPE TABLE OF ty_data,
+          count        TYPE ty_count,
+          polymer_last TYPE ty_data,
+          index        TYPE i.
+
+    DATA(step) = 1.
+
+    WHILE step <= p_steps.
+
+
+      CLEAR: polymer_temp, mt_count.
+
+      index = 1.
+
+
+      LOOP AT mt_polymer ASSIGNING FIELD-SYMBOL(<polymer>).
+
+
+        INSERT <polymer> INTO TABLE polymer_temp. "Add N
+
+        READ TABLE mt_count WITH KEY element = <polymer>-value ASSIGNING FIELD-SYMBOL(<count>).
+        IF sy-subrc = 0.
+          <count>-count = <count>-count + 1.
+        ELSE.
+          count-element = <polymer>-value.
+          count-count = 1.
+          INSERT count INTO TABLE mt_count.
+        ENDIF.
+
+
+        "Check n && n+1 against rules
+        TRY.
+            DATA(pair) = <polymer>-value && mt_polymer[ index + 1 ]-value.
+          CATCH cx_sy_itab_line_not_found INTO DATA(exception). "oob = ok
+            CONTINUE.
+        ENDTRY.
+
+        CLEAR: count.
+
+        "Get insert from rule and add
+        READ TABLE mt_rules WITH KEY pair = pair ASSIGNING FIELD-SYMBOL(<rule>).
+        IF sy-subrc = 0.
+
+          INSERT VALUE #( value = <rule>-insert ) INTO TABLE polymer_temp.
+
+          READ TABLE mt_count WITH KEY element = <rule>-insert ASSIGNING <count>.
+          IF sy-subrc = 0.
+            <count>-count = <count>-count + 1.
+          ELSE.
+            count-element = <rule>-insert.
+            count-count = 1.
+            INSERT count INTO TABLE mt_count.
+          ENDIF.
+
+        ENDIF.
+
+        index = index + 1.
+
+      ENDLOOP.
+
+      mt_polymer = polymer_temp.
+
+      WRITE /: |Step { step }: { lines( mt_polymer ) } |.
+
+      step = step + 1.
+
+    ENDWHILE.
+
+
+    "Count elements
+*    SORT mt_polymer BY value.
+*    LOOP AT mt_polymer ASSIGNING <polymer>.
+*
+*      IF polymer_last IS NOT INITIAL
+*        AND polymer_last-value <> <polymer>-value.
+*
+*        INSERT count INTO TABLE mt_count.
+*        CLEAR count.
+*
+*      ENDIF.
+*
+*      count-element = <polymer>-value.
+*      count-count = count-count + 1.
+*
+*      polymer_last = <polymer>.
+*
+*    ENDLOOP.
+*
+*    INSERT count INTO TABLE mt_count.
+
+    SORT mt_count DESCENDING BY count.
+    mv_result = mt_count[ 1 ]-count - mt_count[ lines( mt_count ) ]-count.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day14.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+    CATCH cx_root INTO DATA(root_exception).
+
+      WRITE: |Exception: { root_exception->get_longtext( ) } |.
+      WRITE: / root_exception->get_text( ).
+
+  ENDTRY.
