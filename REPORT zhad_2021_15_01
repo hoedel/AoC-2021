@@ -1,0 +1,167 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_15_01 LINE-SIZE 1023.
+
+INCLUDE zhad_2021_selection.
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    TYPES: BEGIN OF ty_node,
+             history      TYPE HASHED TABLE OF ty_2d WITH UNIQUE KEY y x,
+             current      TYPE ty_2d,
+             history_cost TYPE i,
+             cost         TYPE i,
+           END OF ty_node.
+
+    DATA: mt_open_nodes TYPE SORTED TABLE OF ty_node WITH NON-UNIQUE KEY cost,
+          ms_target     TYPE ty_2d,
+          mt_delta      TYPE TABLE OF ty_2d.
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+  PRIVATE SECTION.
+
+
+    METHODS estimate_cost IMPORTING node        TYPE ty_2d
+                          RETURNING VALUE(cost) TYPE i.
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    parse_input_2d_sep( EXPORTING by_position = p_2dpos
+                        IMPORTING data = mt_2d ).
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    "Init delta
+
+    DATA: new TYPE ty_node.
+
+    mt_delta = VALUE #(
+    ( x = 0     y = - 1 )
+    ( x = 0     y = 1 )
+    ( x = -1    y = 0 )
+    ( x = 1     y = 0 ) ).
+
+    "Init target
+    ms_target = VALUE #( x = mt_2d[ lines( mt_2d ) ]-x y = mt_2d[ lines( mt_2d ) ]-y ).
+    READ TABLE mt_2d WITH KEY y = 0 x = 0 ASSIGNING FIELD-SYMBOL(<first>).
+    <first>-value = 0. "We do not need to count the first one
+
+
+    INSERT VALUE #( current = mt_2d[ x = 0 y = 0 ] ) INTO TABLE mt_open_nodes.
+
+
+    WHILE lines( mt_open_nodes ) > 0. "while we have options
+
+
+      "start at best possibility
+
+      "Get best possible = lowest index
+
+      DATA(open) =  mt_open_nodes[ 1 ].
+
+      "check if we are done.
+      IF open-current-x     = ms_target-x
+       AND open-current-y   = ms_target-y.
+
+        DATA(final) = open.
+        EXIT.
+
+      ENDIF.
+
+      "Remove ourselves.
+      DELETE TABLE mt_open_nodes FROM open.
+
+      "Aggresive approach -> also remove ourselfs from the possible node to avoid walking in circles
+
+      delete table mt_2d with TABLE KEY y = open-current-y x = open-current-x.
+
+      "get neighbours
+      LOOP AT mt_delta ASSIGNING FIELD-SYMBOL(<delta>).
+
+        CLEAR: new.
+
+        TRY.
+
+            new-current = mt_2d[ y = open-current-y + <delta>-y x = open-current-x + <delta>-x ].
+
+*            READ TABLE open-history WITH KEY y = new-current-y x = new-current-x TRANSPORTING NO FIELDS.
+*            IF sy-subrc <> 0. "we have not been there
+
+              new-history = open-history.
+              INSERT open-current INTO TABLE new-history.
+              new-history_cost = open-history_cost + open-current-value.
+              new-cost = new-history_cost + estimate_cost( new-current ).
+
+              INSERT new INTO TABLE mt_open_nodes.
+
+*            ENDIF.
+
+          CATCH cx_sy_itab_line_not_found INTO DATA(exception). "oob = ok
+            CONTINUE.
+        ENDTRY.
+
+      ENDLOOP.
+
+    ENDWHILE.
+
+    mv_result = final-cost.
+
+  ENDMETHOD.
+
+
+  METHOD estimate_cost.
+
+    "Cost of current step + distance x and distance y
+    cost = node-value + ms_target-x - node-x + ms_target-y - node-y.
+
+  ENDMETHOD.
+
+
+
+ENDCLASS.
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day15.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+    CATCH cx_root INTO DATA(root_exception).
+
+      WRITE: |Exception: { root_exception->get_longtext( ) } |.
+      WRITE: / root_exception->get_text( ).
+
+  ENDTRY.
