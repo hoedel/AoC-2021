@@ -25,6 +25,7 @@ CLASS zhad_2021_base DEFINITION
                 remove_space     TYPE abap_bool OPTIONAL
                 replace_source   TYPE text10    OPTIONAL
                 replace_target   TYPE text10    OPTIONAL
+                by_position      TYPE abap_bool OPTIONAL
       CHANGING  data             TYPE REF TO data
       RAISING   /wsv/cx_bp_general.
 
@@ -46,6 +47,7 @@ CLASS zhad_2021_base DEFINITION
   PROTECTED SECTION.
     DATA: mt_input_string TYPE TABLE OF string,
           mv_result       TYPE int8,
+          mv_result_part2 TYPE int8,
           mt_2d           TYPE SORTED TABLE OF ty_2d WITH UNIQUE KEY y x.
 
 
@@ -114,8 +116,13 @@ CLASS zhad_2021_base IMPLEMENTATION.
 
   METHOD print_result.
 
+    WRITE: / |Part 1: { mv_result }|.
+
+    IF mv_result_part2 IS NOT INITIAL.
+      WRITE: / |Part 2: { mv_result_part2 }|.
+    ENDIF.
+
     ULINE.
-    WRITE: / mv_result.
 
     GET RUN TIME FIELD DATA(runtime_end).
 
@@ -164,6 +171,16 @@ CLASS zhad_2021_base IMPLEMENTATION.
 
       ELSEIF seperator1 IS NOT INITIAL.
         SPLIT <input> AT seperator1 INTO TABLE lt_input_split1 IN CHARACTER MODE.
+
+      ELSEIF by_position = abap_true.
+
+        CLEAR: lt_input_split1.
+        DO strlen( <input> ) TIMES.
+
+          DATA(offset) = sy-index - 1.
+          INSERT <input>+offset(1) INTO TABLE lt_input_split1.
+
+        ENDDO.
 
       ELSE. " 1:1 transfer without seperator
 
@@ -237,15 +254,13 @@ CLASS zhad_2021_base IMPLEMENTATION.
 
       ELSEIF by_position = abap_true.
 
-        clear: lt_input_split1.
+        CLEAR: lt_input_split1.
         DO strlen( <input> ) TIMES.
 
           DATA(offset) = sy-index - 1.
           INSERT <input>+offset(1) INTO TABLE lt_input_split1.
 
         ENDDO.
-
-
 
       ENDIF.
 
