@@ -1,0 +1,384 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_16_01 LINE-SIZE 1023.
+
+INCLUDE zhad_2021_selection.
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+  PRIVATE SECTION.
+
+    TYPES: BEGIN OF ty_packet,
+             id        TYPE i,
+             parent_id TYPE i,
+             version   TYPE i,
+             type_id   TYPE i,
+             value     TYPE int8,
+             done      TYPE abap_bool,
+           END OF ty_packet.
+
+    TYPES: tt_packet TYPE SORTED TABLE OF ty_packet WITH UNIQUE KEY id.
+
+    DATA: mv_input_hex TYPE string,
+          mt_packets   TYPE SORTED TABLE OF ty_packet WITH UNIQUE KEY id.
+
+    METHODS convert_hex_to_bin IMPORTING hex           TYPE string
+                               RETURNING VALUE(binary) TYPE string.
+
+    METHODS get_packets IMPORTING binary             TYPE string
+                                  fix_trailing_zeros TYPE abap_bool
+                                  no_packets         TYPE i OPTIONAL
+                        CHANGING  current_id         TYPE i
+                                  offset             TYPE i
+                        RETURNING VALUE(packets)     TYPE tt_packet.
+
+    METHODS calculate_value IMPORTING id           TYPE i
+                            RETURNING VALUE(value) TYPE int8.
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    mv_input_hex = mt_input_string[ 1 ].
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: binary     TYPE string,
+          current_id TYPE i.
+
+    DATA(offset) = 0.
+    " convert into binary
+    binary = convert_hex_to_bin( mv_input_hex ).
+
+    current_id = 0.
+
+    DATA(master_packet) = get_packets( EXPORTING binary = binary
+                                        fix_trailing_zeros = abap_true
+                                        no_packets = 1
+                               CHANGING current_id = current_id
+                                        offset = offset  ).
+
+    INSERT LINES OF master_packet INTO TABLE mt_packets.
+
+    LOOP AT mt_packets ASSIGNING FIELD-SYMBOL(<packet>).
+
+      mv_result = mv_result + <packet>-version.
+
+    ENDLOOP.
+
+    mv_result_part2 = calculate_value( 1 ).
+
+
+  ENDMETHOD.
+
+  METHOD get_packets.
+
+
+    DATA: packet               TYPE ty_packet,
+          value_bin            TYPE string,
+          subpacket_lenght_dec TYPE i,
+          subpacket_count_dec  TYPE i,
+          sub_packets          TYPE tt_packet,
+          local_packet_count   TYPE i.
+
+
+
+
+    WHILE offset < strlen( binary ).
+
+      CLEAR: packet,
+             value_bin,
+             sub_packets.
+
+      current_id = current_id + 1.
+      DATA(orig_id) = current_id.
+
+      packet-id = current_id.
+
+      packet-version = /ui2/cl_number=>base_converter( number = CONV #( binary+offset(3) ) from = 2 to = 10 ).
+      offset = offset + 3.
+
+      packet-type_id = /ui2/cl_number=>base_converter( number = CONV #( binary+offset(3) ) from = 2 to = 10 ).
+      offset = offset + 3.
+
+
+      IF packet-type_id = 4.
+
+        DO. "Get all value parts
+
+
+          DATA(grouping_bit) = binary+offset(1).
+          offset = offset + 1.
+
+          value_bin = value_bin && binary+offset(4).
+          offset = offset + 4.
+
+          IF grouping_bit = '0'. "Are we done here?
+            EXIT.
+          ENDIF.
+
+        ENDDO.
+
+        packet-value = /ui2/cl_number=>base_converter( number = value_bin from = 2 to = 10 ).
+
+
+      ELSE. "operator packet
+
+        DATA(lenght_type_id) = binary+offset(1).
+        offset = offset + 1.
+
+        CASE lenght_type_id.
+
+          WHEN '0'.
+            DATA(subpacket_lenght_bin) = binary+offset(15).
+            offset = offset + 15.
+
+            subpacket_lenght_dec = /ui2/cl_number=>base_converter( number = subpacket_lenght_bin  from = 2 to = 10 ).
+
+            DATA(dummy_offset) = 0.
+
+            sub_packets = get_packets( EXPORTING binary = CONV #( binary+offset(subpacket_lenght_dec) )
+                                                 fix_trailing_zeros = abap_false
+                               CHANGING current_id = current_id
+                                        offset = dummy_offset ).
+
+            offset = offset + subpacket_lenght_dec.
+
+          WHEN '1'.
+            DATA(subpacket_count_bin) = binary+offset(11).
+            offset = offset + 11.
+
+            subpacket_count_dec = /ui2/cl_number=>base_converter( number = subpacket_count_bin  from = 2 to = 10 ).
+            DATA(remaining_length) = strlen( binary ) - offset.
+
+            sub_packets = get_packets(  EXPORTING   binary = binary
+                                                    fix_trailing_zeros = abap_true
+                                                    no_packets = subpacket_count_dec
+                                        CHANGING    current_id = current_id
+                                                    offset = offset ).
+
+        ENDCASE.
+
+
+
+        LOOP AT sub_packets ASSIGNING FIELD-SYMBOL(<sub_packet>).
+
+          <sub_packet>-parent_id = packet-id.
+
+        ENDLOOP.
+
+        INSERT LINES OF sub_packets INTO TABLE mt_packets. "UUUUUgly
+
+      ENDIF.
+
+      INSERT packet INTO TABLE packets.
+      local_packet_count = local_packet_count + 1.
+
+      IF local_packet_count = no_packets. "did we reach the number of requested packets?
+        "fix offset
+        "find out how many trailing zeros there must be
+        IF fix_trailing_zeros = abap_true.
+          remaining_length = strlen( binary ) - offset.
+          IF binary+offset(remaining_length) CO '0'.
+            offset = strlen( binary ).
+          ENDIF.
+        ENDIF.
+        EXIT.
+      ENDIF.
+
+    ENDWHILE.
+
+  ENDMETHOD.
+
+  METHOD convert_hex_to_bin.
+
+    DATA(offset) = 0.
+    DATA: hex_as_bin TYPE char4.
+
+    WHILE offset < strlen( hex ).
+
+
+      "ich speib.
+      CASE hex+offset(1).
+        WHEN '0'.
+          hex_as_bin = '0000'.
+        WHEN '1'.
+          hex_as_bin = '0001'.
+        WHEN '2'.
+          hex_as_bin = '0010'.
+        WHEN '3'.
+          hex_as_bin = '0011'.
+        WHEN '4'.
+          hex_as_bin = '0100'.
+        WHEN '5'.
+          hex_as_bin = '0101'.
+        WHEN '6'.
+          hex_as_bin = '0110'.
+        WHEN '7'.
+          hex_as_bin = '0111'.
+        WHEN '8'.
+          hex_as_bin = '1000'.
+        WHEN '9'.
+          hex_as_bin = '1001'.
+        WHEN 'A'.
+          hex_as_bin = '1010'.
+        WHEN 'B'.
+          hex_as_bin = '1011'.
+        WHEN 'C'.
+          hex_as_bin = '1100'.
+        WHEN 'D'.
+          hex_as_bin = '1101'.
+        WHEN 'E'.
+          hex_as_bin = '1110'.
+        WHEN 'F'.
+          hex_as_bin = '1111'.
+      ENDCASE.
+
+      offset = offset + 1.
+      binary = binary && hex_as_bin.
+
+    ENDWHILE.
+
+
+  ENDMETHOD.
+
+
+  METHOD calculate_value.
+
+    DATA: children TYPE SORTED TABLE OF ty_packet WITH NON-UNIQUE KEY id.
+
+    ASSIGN mt_packets[ id = id ] TO FIELD-SYMBOL(<parent>).
+    DATA(index) = 1.
+
+    LOOP AT mt_packets ASSIGNING FIELD-SYMBOL(<child>)
+        WHERE parent_id = <parent>-id .
+
+      INSERT <child> INTO TABLE children.
+
+    ENDLOOP.
+
+    LOOP AT children ASSIGNING <child>.
+
+      "is child also operator?
+      IF <child>-type_id <> 4.
+        <child>-value = calculate_value( <child>-id ).
+      ENDIF.
+
+      CASE <parent>-type_id.
+        WHEN 0. "Sum
+          value = value + <child>-value.
+
+        WHEN 1. "product
+          IF value IS INITIAL
+            AND index = 1.
+            value = <child>-value.
+          ELSE.
+            value = value * <child>-value.
+          ENDIF.
+
+        WHEN 2. "min
+          IF value IS INITIAL.
+            value = <child>-value.
+          ELSEIF value > <child>-value.
+            value = <child>-value.
+          ENDIF.
+
+        WHEN 3. "max
+          IF value IS INITIAL.
+            value = <child>-value.
+          ELSEIF value < <child>-value.
+            value = <child>-value.
+          ENDIF.
+
+        WHEN 5 OR 6 OR 7. "greater than, less than, equal to
+
+          IF index = 1.
+            DATA(subpacket_1_value) = <child>-value.
+          ELSEIF index = 2.
+            DATA(subpacket_2_value) = <child>-value.
+          ELSE.
+            WRITE: 'Error'.
+          ENDIF.
+
+      ENDCASE.
+
+      index = index + 1.
+      <child>-done = abap_true.
+
+    ENDLOOP.
+
+    CASE <parent>-type_id.
+
+      WHEN 5. "greater than
+        IF subpacket_1_value > subpacket_2_value.
+          value = 1.
+        ELSE.
+          value = 0.
+        ENDIF.
+
+      WHEN 6. "less than
+        IF subpacket_1_value < subpacket_2_value.
+          value = 1.
+        ELSE.
+          value = 0.
+        ENDIF.
+
+      WHEN 7. "equal to
+        IF subpacket_1_value = subpacket_2_value.
+          value = 1.
+        ELSE.
+          value = 0.
+        ENDIF.
+
+
+    ENDCASE.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day16.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+    CATCH cx_root INTO DATA(root_exception).
+
+      WRITE: |Exception: { root_exception->get_longtext( ) } |.
+      WRITE: / root_exception->get_text( ).
+
+  ENDTRY.
