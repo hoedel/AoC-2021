@@ -1,0 +1,202 @@
+*&---------------------------------------------------------------------*
+*& Report zhad_2021_01_1
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhad_2021_17_01 LINE-SIZE 1023.
+
+INCLUDE zhad_2021_selection.
+
+PARAMETERS: max_x TYPE i DEFAULT 20,
+            max_y TYPE i DEFAULT 20.
+
+CLASS zhad_2021_local DEFINITION INHERITING FROM zhad_2021_base.
+
+  PUBLIC SECTION.
+
+    METHODS parse_input
+      RAISING /wsv/cx_bp_general.
+
+    METHODS main REDEFINITION.
+
+  PRIVATE SECTION.
+
+    DATA mt_target_area TYPE TABLE OF ty_2d.
+
+    METHODS simulate_shot IMPORTING x_vel        TYPE i
+                                    y_vel        TYPE i
+                          EXPORTING relevant     TYPE abap_bool
+                          RETURNING VALUE(max_y) TYPE i.
+
+
+ENDCLASS.
+
+CLASS zhad_2021_local IMPLEMENTATION.
+
+  METHOD parse_input.
+
+    "very weird parsing, we wont implement it in base class
+
+    DATA: min TYPE ty_2d,
+          max TYPE ty_2d.
+
+
+    mt_input_string = clean_input( input = mt_input_string
+                                   replace_source = p_reps
+                                   remove_space = p_remsp ).
+
+    ASSIGN mt_input_string[ 1 ] TO FIELD-SYMBOL(<input>).
+
+    REPLACE ALL OCCURRENCES OF 'x=' IN <input> WITH ''.
+    REPLACE ALL OCCURRENCES OF 'y=' IN <input> WITH ''.
+
+    SPLIT mt_input_string[ 1 ] AT CONV string( p_sep1 ) INTO TABLE DATA(input_split1) IN CHARACTER MODE.
+
+    DATA(index) = 0.
+
+    LOOP AT input_split1 ASSIGNING FIELD-SYMBOL(<input_split1>).
+
+      SPLIT <input_split1> AT CONV string( p_sep2 ) INTO TABLE DATA(input_split2) IN CHARACTER MODE.
+
+      CASE index.
+        WHEN 0. "x
+          min-x = input_split2[ 1 ].
+          max-x = input_split2[ 2 ].
+        WHEN 1.
+          min-y = input_split2[ 2 ].
+          max-y = input_split2[ 1 ].
+      ENDCASE.
+
+      index = index + 1.
+
+    ENDLOOP.
+
+    INSERT min INTO TABLE mt_target_area.
+    INSERT max INTO TABLE mt_target_area.
+
+
+  ENDMETHOD.
+
+  METHOD main.
+
+    DATA: velocity_x TYPE i,
+          velocity_y TYPE i.
+
+
+    velocity_x = 1. "do not shoot straight up
+
+    "Just try a few combinations
+    WHILE velocity_x < max_x.
+
+      velocity_y = max_y * -1.
+
+      WHILE velocity_y < max_y.
+
+        DATA(relevant) = abap_false.
+
+        DATA(y) = simulate_shot( EXPORTING x_vel = velocity_x
+                                 y_vel = velocity_y
+                                 IMPORTING relevant = relevant ).
+
+        IF y > mv_result.
+          mv_result = y.
+        ENDIF.
+
+        IF relevant = abap_true.
+          mv_result_part2 = mv_result_part2 + 1.
+        ENDIF.
+
+        velocity_y = velocity_y + 1.
+
+      ENDWHILE.
+
+      velocity_x = velocity_x + 1.
+
+    ENDWHILE.
+
+
+
+  ENDMETHOD.
+
+
+  METHOD simulate_shot.
+
+    DATA: x          TYPE i,
+          y          TYPE i,
+          velocity_x TYPE i,
+          velocity_y TYPE i.
+
+    "initial vel
+    velocity_x = x_vel.
+    velocity_y = y_vel.
+
+    relevant = abap_false.
+
+    WHILE y >= mt_target_area[ 2 ]-y
+      AND x <= mt_target_area[ 2 ]-x.  "while we are left and above target
+
+
+      "apply vel
+      x = x + velocity_x.
+      y = y + velocity_y.
+
+
+      "change velocity
+      IF velocity_x > 0.
+        velocity_x = velocity_x - 1.
+      ELSEIF velocity_x < 0.
+        velocity_x = velocity_x + 1.
+      ENDIF.
+
+      velocity_y = velocity_y - 1.
+
+      IF max_y < y.
+        max_y = y.
+      ENDIF.
+
+      "Check if we are in the target area
+      IF ( x >= mt_target_area[ 1 ]-x AND x <= mt_target_area[ 2 ]-x )
+       AND ( y <= mt_target_area[ 1 ]-y AND y >= mt_target_area[ 2 ]-y ).
+        relevant = abap_true.
+      ENDIF.
+
+    ENDWHILE.
+
+    IF relevant = abap_false.
+      CLEAR max_y.
+    ENDIF.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+INITIALIZATION.
+
+  p_finput = p_finput && 'day17.txt'.
+
+START-OF-SELECTION.
+
+  TRY.
+
+      DATA(riddle) = NEW zhad_2021_local( ).
+
+      riddle->read_input( p_finput ).
+
+      riddle->parse_input( ).
+
+      riddle->main( ).
+
+      riddle->print_result( ).
+
+
+    CATCH /wsv/cx_bp_general INTO DATA(exception).
+
+      exception->create_message( ).
+
+    CATCH cx_root INTO DATA(root_exception).
+
+      WRITE: |Exception: { root_exception->get_longtext( ) } |.
+      WRITE: / root_exception->get_text( ).
+
+  ENDTRY.
